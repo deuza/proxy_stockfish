@@ -10,7 +10,7 @@ Il est volontairement exhaustif, si tout se passe bien l'installation se fera en
 
 ## Fonctionnalités
 
-- **Proxy transparent** : Utilise Stockfish distant comme s'il était local
+- **Proxy transparent** : Utilise Stockfish distant comme s'il tournait en local
 - **Communication UCI** : Support complet du protocole UCI (Universal Chess Interface)
 - **Auto-configuration** : Configuration automatique optimisée selon les paramètres définis
 - **Gestion d'état** : Gestion intelligente des commandes d'analyse (`go infinite`, `stop`)
@@ -87,7 +87,7 @@ Création d'une clé sans mot de passe avec PuTTYgen :
 git clone https://github.com/deuza/proxy_stockfish.git
 ```
 
-2. **Configurer le fichier** `config.json` avec vos paramètres (voir plus loin !) :
+2. **Créer le fichier** `config.json` avec vos paramètres (voir plus loin !) :
 
 ```json
 {
@@ -195,7 +195,7 @@ Si ça fonctionne, alors `plink.exe` peut se connecter et la clé du serveur ser
 Tester le script pour vérifier que tout fonctionne :
 
 ```powershell
-PS C:\proxy_stockfish> python .\proxy_stockfish.py
+PS C:\proxy_stockfish> python .\proxysf.py
 ```
 
 **Session de test avec auto-configuration** :
@@ -231,27 +231,27 @@ Si ces deux tests passent, vous pouvez créer l'exécutable.
 
 2. **Créer l'exécutable** :
    ```bash
-   pyinstaller --onefile --console proxy_stockfish.py
+   pyinstaller --onefile --console proxysf.py
    ```
 
-   L'exécutable sera créé dans le dossier `dist/proxy_stockfish.exe`
+   L'exécutable sera créé dans le dossier `dist/proxy_sf.exe`
 
 3. **Copier le fichier de configuration à côté de l'exe** :
    ```powershell
-   PS C:\proxy_stockfish> cp .\config.json dist/
+   PS C:\proxysf> cp .\config.json dist/
    ```
 
 4. **Se déplacer dans le répertoire contenant l'exécutable et son fichier de configuration** :
    ```powershell
-   PS C:\proxy_stockfish> cd dist/
+   PS C:\proxysf> cd dist/
    ```
 
 ### 5. Tests et manipulation du binaire
 
-Pour tester manuellement l'exécutable, lancer `proxy_stockfish.exe` dans un terminal :
+Pour tester manuellement l'exécutable, lancer `proxysf.exe` dans un terminal :
 
 ```
-> proxy_stockfish.exe
+> proxysf.exe
 > uci
 id name Stockfish 17.1
 id author the Stockfish developers
@@ -388,12 +388,12 @@ ps aux | grep stockfish  # vérifier qu'il n'en reste plus
 
 - Via le *Gestionnaire des tâches* :      
 
-Tuer tout les processus `proxy_stockfish.exe`
+Tuer tout les processus `proxysf.exe`
 
 - Via *PowerShell* :       
 
 ```powershell
-taskkill /f /im proxy_stockfish.exe
+taskkill /f /im proxysf.exe
 ```
 
 ### Instances multiples
@@ -412,7 +412,7 @@ En cas de lancement simultané (tournois avec plusieurs workers, tests multiples
 ```
 [Interface UCI locale] 
         ↓
-[proxy_stockfish.py]
+[proxysf.py]
         ↓ configuration (sécurisée par SSH)
 [plink.exe] → [Serveur distant] → [Stockfish configuré]
         ↑                              ↓
