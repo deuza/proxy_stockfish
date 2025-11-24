@@ -1,3 +1,10 @@
+![GitHub release](https://img.shields.io/github/v/release/deuza/proxy_stockfish?label=release&style=plastic)
+![GitHub commit activity](https://img.shields.io/github/commit-activity/t/proxy_stockfish)
+[![GitHub last commit](https://img.shields.io/github/last-commit/DeuZa/proxy_stockfish?style=plastic)](https://github.com/DeuZa/proxy_stockfish/commits/main)
+[![License: CC0](https://img.shields.io/badge/license-CC0_1.0-lightgrey.svg?style=plastic)](https://creativecommons.org/publicdomain/zero/1.0/)
+![Hack The Planet](https://img.shields.io/badge/hack-the--planet-black?style=flat-square\&logo=gnu\&logoColor=white)
+![Built With Love](https://img.shields.io/badge/built%20with-%E2%9D%A4%20by%20DeuZa-red?style=plastic)  
+
 # Stockfish Remote Proxy
 
 Un proxy Python permettant d'exécuter Stockfish sur un serveur distant via SSH et de l'utiliser comme s'il était installé localement.    
