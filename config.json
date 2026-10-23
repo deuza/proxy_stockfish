@@ -1,0 +1,22 @@
+{
+  "host": "your-server.example.com",
+  "username": "your-user",
+  "port": 22,
+  "key_file": "~/.ssh/id_ed25519",
+  "stockfish_command": "/usr/games/stockfish",
+  "logging_enabled": true,
+  "log_file": "debug.log",
+
+  "_comment_stockfish": "Adjust to your server: sf_threads = nproc, sf_hash = half of the RAM in MB",
+  "sf_threads": 4,
+  "sf_hash": 2048,
+  "sf_multipv": 1,
+  "sf_ponder": false,
+
+  "sf_options": {
+    "Skill Level": 20,
+    "UCI_ShowWDL": true
+  },
+
+  "ssh_options": ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"]
+}

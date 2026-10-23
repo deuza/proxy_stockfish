@@ -1,486 +1,518 @@
-[![GitHub last commit](https://img.shields.io/github/v/release/deuza/proxy_stockfish?style=plastic)](https://github.com/deuza/proxy_stockfish/commits/main)
+[![GitHub release](https://img.shields.io/github/v/release/deuza/proxy_stockfish?style=plastic)](https://github.com/deuza/proxy_stockfish/releases)
 ![GitHub Release Date](https://img.shields.io/github/release-date/deuza/proxy_stockfish)
 [![GitHub last commit](https://img.shields.io/github/last-commit/deuza/proxy_stockfish?style=plastic)](https://github.com/deuza/proxy_stockfish/commits/main)
 ![GitHub commit activity](https://img.shields.io/github/commit-activity/t/deuza/proxy_stockfish)
 [![License: CC0](https://img.shields.io/badge/license-CC0_1.0-lightgrey.svg?style=plastic)](https://creativecommons.org/publicdomain/zero/1.0/)
 ![Hack The Planet](https://img.shields.io/badge/hack-the--planet-black?style=flat-square\&logo=gnu\&logoColor=white)
-![Built With Love](https://img.shields.io/badge/built%20with-%E2%9D%A4%20by%20DeuZa-red?style=plastic)  
+![Built With Love](https://img.shields.io/badge/built%20with-%E2%9D%A4%20by%20DeuZa-red?style=plastic)
 
 # Stockfish Remote Proxy
 
-Un proxy Python permettant d'exécuter Stockfish sur un serveur distant via SSH et de l'utiliser comme s'il était installé localement.    
-Idéal pour utiliser la puissance de calcul d'un serveur dédié pour l'analyse d'échecs.
+A small Python proxy that runs Stockfish on a remote server over SSH and
+presents it to your local chess GUI (Arena, Lucas Chess, Scid vs PC,
+ChessBase, ...) as if the engine were installed locally.
 
-**Recommandation importante** : Lisez ce README complètement une première fois avant de commencer l'installation.
+Use the horsepower of a dedicated server, a VPS or a spare machine for your
+analysis, from any Windows, Linux or macOS desktop.
 
-Cela vous évitera des erreurs et vous fera gagner du temps :)       
-Il est volontairement exhaustif, si tout se passe bien l'installation se fera en moins de 30min.
+**Please read this README once in full before starting.** It is deliberately
+exhaustive. If everything goes well the whole setup takes less than 30 minutes.
 
-## Fonctionnalités
+## Features
 
-- **Proxy transparent** : Utilise Stockfish distant comme s'il tournait en local
-- **Communication UCI** : Support complet du protocole UCI (Universal Chess Interface)
-- **Auto-configuration** : Configuration automatique optimisée selon les paramètres définis
-- **Gestion d'état** : Gestion intelligente des commandes d'analyse (`go infinite`, `stop`)
-- **Logging configurable** : Système de logs détaillé pour le debugging
-- **Connexion sécurisée** : Utilise SSH avec authentification par clé privée
-- **Synchronisation** : Attente des réponses UCI appropriées (`uciok`, `readyok`, `bestmove`)
+- **Transparent proxy**: the remote Stockfish behaves like a local engine
+- **UCI**: every UCI command is forwarded unchanged to the engine
+- **Auto-configuration**: threads, hash, MultiPV, ponder and any custom option
+  are applied at startup from `config.json`
+- **Analysis state tracking**: `go infinite` / `stop` are handled so the GUI
+  never races the engine
+- **Synchronisation**: the proxy waits for `uciok`, `readyok` and `bestmove`
+  where it matters, with timeouts
+- **Native OpenSSH**: no PuTTY, no plink, no `.ppk` keys, no Python SSH library
+- **Cross-platform**: Windows, Linux and macOS clients
+- **Logging**: optional detailed log file for debugging
+- **Key-based authentication only**: no password anywhere
 
-## Prérequis
+## Requirements
 
-### Système local (Windows)
+### Local machine (Windows, Linux or macOS)
 
-- **Python 3.x** : [Télécharger Python](https://www.python.org/downloads/)
-    - Important : Cocher "Add Python to PATH" lors de l'installation
-- **PuTTY** : [Télécharger PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html)
-- **Clé SSH privée** au format PuTTY (`.ppk`)
-    - Important : La clé ne doit **PAS** avoir de mot de passe (passphrase vide) **sinon plink en mode batch ne pourra pas l'utiliser !**
+- **Python 3.x**: [python.org/downloads](https://www.python.org/downloads/)
+  - Windows: tick "Add Python to PATH" during installation
+- **OpenSSH client**: shipped with Linux and macOS; on Windows 10/11 it is an
+  optional feature, see
+  [Microsoft's OpenSSH installation guide](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse).
+  Check with `ssh -V` in a terminal.
+- **An OpenSSH private key** (`id_ed25519` or `id_rsa`) **without a
+  passphrase**. The proxy runs `ssh` in batch mode, nobody is there to type a
+  passphrase. Alternative: a passphrase-protected key loaded in a running
+  `ssh-agent` also works.
 
-### Serveur distant (Debian-Ubuntu GNU/Linux)
+### Remote server
 
-- **Stockfish installé** :
-- **Accès SSH configuré** avec authentification par clé
+- **Stockfish** installed
+- **sshd** with public key authentication for your user
+- Any Unix-like host works: Debian/Ubuntu is used in the examples below,
+  macOS with Homebrew has been tested too (`/opt/homebrew/bin/stockfish`)
 
-### Recommandations pour serveur distant
+Recommended resources:
 
-**Ressources minimales** :
-- 4 cores CPU minimum pour un gain notable
-- 8 GB RAM minimum pour analyses approfondies  
-- Connexion stable avec latence < 50ms
-
-### Documentation SSH
-Pour la configuration SSH complète concernant l'échange de clefs publiques/privées : [Guide SSH Debian](https://wiki.debian.org/fr/SSH#Utilisation_de_cl.2BAOk-s_partag.2BAOk-es)
+- 4 CPU cores minimum to feel a real gain
+- 8 GB RAM minimum for deep analysis
+- A stable connection, ideally under 50 ms latency
 
 ## Installation
 
-### 1. Installation côté serveur distant (Debian/Ubuntu GNU Linux)
+### 1. Remote server (Debian/Ubuntu)
 
-* Installation de Stockfish - ajoutez sudo devant si vous n'êtes pas root ou si avez choisi de faire tourner Stockfish avec un utilisateur dédié (ce qui est une très bonne idée !)
+Install Stockfish (prefix with `sudo` if you are not root, running Stockfish
+under a dedicated unprivileged user is a very good idea):
+
 ```bash
 apt install stockfish
 ```
 
-* Vérifier l'installation
+Check the installation, then type `quit` to leave:
+
 ```bash
 stockfish
 ```
-Devrait afficher le header de Stockfish avec sa version : "Stockfish 17.1 by the Stockfish developers"
 
-Puis saisir `quit` pour sortir
+You should see the engine banner, for example
+`Stockfish 17.1 by the Stockfish developers (see AUTHORS file)`.
 
-* Vérifier le chemin d'installation
+Find the binary path, you will need it in `config.json`:
+
 ```bash
 which stockfish
 ```
 
-Généralement : /usr/games/stockfish
+Usually `/usr/games/stockfish` on Debian/Ubuntu.
 
-### 2. Configuration côté local (Windows)
+### 2. Local machine
 
-#### Configuration SSH (PuTTY)
+#### SSH key
 
-Création d'une clé sans mot de passe avec PuTTYgen :
+Generate a key without a passphrase (`-N ""`). Ed25519 is the recommended
+type, RSA still works:
 
-1. Ouvrir PuTTYgen
-2. Générer une nouvelle clé
-3. **Laisser vide** le champ "Key passphrase"
-4. Sauvegarder la clé privée (`.ppk`) et publique
-5. Ajouter la clé publique sur le serveur distant
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
+```
 
-#### Récupérer les fichiers du projet
+Copy the public key to the server:
 
-1. **Cloner ou télécharger** les fichiers du projet :
+```bash
+ssh-copy-id -i ~/.ssh/id_ed25519.pub user@your-server.example.com
+```
+
+Without `ssh-copy-id` (older Windows builds), do it by hand:
+
+```bash
+cat ~/.ssh/id_ed25519.pub | ssh user@your-server.example.com "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+```
+
+Reference: [ssh-keygen(1)](https://man.openbsd.org/ssh-keygen.1),
+[ssh-copy-id(1)](https://manpages.debian.org/trixie/openssh-client/ssh-copy-id.1.en.html).
+
+#### Optional hardening
+
+Since this key will only ever run Stockfish, you can lock it down on the
+server side. Edit `~/.ssh/authorized_keys` on the server and prefix the key
+with a forced command and the `restrict` option:
+
+```text
+restrict,command="/usr/games/stockfish" ssh-ed25519 AAAA... you@laptop
+```
+
+With this, the key cannot open a shell, forward ports or do anything else than
+launch Stockfish, whatever the client asks for. See the
+`AUTHORIZED_KEYS FILE FORMAT` section of
+[sshd(8)](https://man.openbsd.org/sshd.8).
+
+#### Get the project
 
 ```bash
 git clone https://github.com/deuza/proxy_stockfish.git
+cd proxy_stockfish
 ```
 
-2. **Créer le fichier** `config.json` avec vos paramètres (voir plus loin !) :
+#### Edit config.json
+
+A ready-to-edit `config.json` ships with the project:
 
 ```json
 {
-  "host": "votre-serveur.com", 
-  "username": "votre-utilisateur", 
-  "port": "22", 
-  "key_file": "C:\\chemin\\vers\\votre\\cle.ppk",
-  "plink_path": "C:\\Program Files\\PuTTY\\plink.exe", 
-  "stockfish_command": "/usr/games/stockfish", 
-  "logging_enabled": true, 
-  
-  "_comment_stockfish_config": "Options de configuration pour Stockfish",
-  "sf_threads": 16, 
-  "sf_hash": 8192,
+  "host": "your-server.example.com",
+  "username": "your-user",
+  "port": 22,
+  "key_file": "~/.ssh/id_ed25519",
+  "stockfish_command": "/usr/games/stockfish",
+  "logging_enabled": true,
+  "log_file": "debug.log",
+
+  "_comment_stockfish": "Adjust to your server: sf_threads = nproc, sf_hash = half of the RAM in MB",
+  "sf_threads": 4,
+  "sf_hash": 2048,
   "sf_multipv": 1,
-  "sf_ponder": true,
-  
+  "sf_ponder": false,
+
   "sf_options": {
     "Skill Level": 20,
     "UCI_ShowWDL": true
-  }
+  },
+
+  "ssh_options": ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"]
 }
 ```
 
-##### Paramètres de configuration de base
+##### Connection parameters
 
-| Paramètre | Description | Exemple |
+| Parameter | Description | Example |
 |-----------|-------------|---------|
-| `host` | Adresse IP ou hostname du serveur distant | `"mon-serveur.com"` |
-| `username` | Nom de l'utilisateur distant | `"root"`, `pi` , `your-user` ... |
-| `port` | Port SSH | `"22"` (port par défaut) |
-| `key_file` | Le chemin de votre clef privée .ppk | `"C:\\Users\\USER\\.ssh\\id_rsa.ppk"` |
-| `plink_path` | Le chemin du binaire `plink.exe` sous Windows | `"C:\\Program Files\\PuTTY\\plink.exe"` |
-| `stockfish_command` | Le chemin du binaire `stockfish` sous Debian GNU/Linux | `"/usr/games/stockfish"` |
-| `logging_enabled` | Activer/désactiver les logs | `true` ou `false` |
+| `host` | IP address or hostname of the server | `"chess.example.com"` |
+| `username` | Remote user | `"pi"`, `"stockfish"`, ... |
+| `port` | SSH port | `22` |
+| `key_file` | Path to your OpenSSH private key | `"~/.ssh/id_ed25519"` |
+| `stockfish_command` | Path of the `stockfish` binary on the server | `"/usr/games/stockfish"` |
+| `logging_enabled` | Write a log file | `true` or `false` |
+| `log_file` | Log file name, next to the script | `"debug.log"` |
+| `ssh_options` | Extra arguments passed to `ssh` | see below |
 
-##### Options Stockfish avancées
-
-| Paramètre | Description | Valeurs recommandées |
-|-----------|-------------|---------------------|
-| `sf_threads` | Nombre de threads CPU | Nombre de cores du serveur (ex: 16) |
-| `sf_hash` | Taille du hash en MB | 50% de la RAM serveur (ex: 8192 = 8GB) |
-| `sf_multipv` | Nombre de variantes analysées | 1 (mono), 3-5 (multi-variantes) |
-| `sf_ponder` | Réflexion pendant tour adverse | `true` (évite les bugs de blocage) |
-| `sf_options` | Options Stockfish personnalisées (optionnel) | Voir exemples ci-dessous |
-
-
-#### Exemples de configurations optimisées
-
-**Configurations typiques de Stockfish** :
-
-- **Raspberry Pi 5** : 4 cores, 8GB RAM → sf_threads: 4, sf_hash: 4096
-- **VPS moyen** : 8 cores, 16GB RAM → sf_threads: 8, sf_hash: 8192
-- **Serveur dédié** : 16+ cores, 32+ GB RAM → sf_threads: 16, sf_hash: 16384
-
-**Exemple de configuration pour Raspberry Pi 5 (4 cores, 8GB RAM) :**
+`key_file` accepts `~` on every OS (on Windows it expands to
+`C:\Users\<you>`). A relative path is resolved from the script directory. If
+your key lives somewhere else, use an absolute path, forward slashes are fine
+on Windows:
 
 ```json
-{
-  "sf_threads": 4,
-  "sf_hash": 4096,
-  "sf_multipv": 1,
-  "sf_options": {
-    "Skill Level": 20
-  }
-}
+"key_file": "D:/keys/chess_ed25519"
 ```
 
-#### Pour obtenir des chiffres précis concernant votre matériel et de votre installation :
+Default `ssh_options`:
 
-- **Threads** = nombres de CPUs disponible via la commande :
+- `BatchMode=yes`: `ssh` never prompts for anything (passphrase, password).
+  If it cannot authenticate it fails immediately instead of hanging the GUI.
+- `StrictHostKeyChecking=accept-new`: the server host key is recorded on the
+  first connection and refused afterwards if it changes. No interactive
+  "Are you sure you want to continue connecting?" prompt, no silent acceptance
+  of a changed key either.
 
-```bash
-nproc
-```
+##### Stockfish parameters
 
-- **Hash** = RAM/2 (le chiffre correspondant à la commande :
+| Parameter | Description | Recommended value |
+|-----------|-------------|-------------------|
+| `sf_threads` | Number of CPU threads | number of cores of the server |
+| `sf_hash` | Hash table size in MB | half of the server RAM |
+| `sf_multipv` | Number of lines analysed | `1` (single line), `3` to `5` (multi-line) |
+| `sf_ponder` | Think during the opponent's turn | `false` (avoids lock-ups) |
+| `sf_options` | Any other UCI option, as `"name": value` | optional |
+
+Shipped values (`4` threads, `2048` MB) are deliberately small so that the
+proxy cannot bring a modest server to its knees on first launch. Raise them to
+match your hardware:
+
+- Threads: output of `nproc` on the server
+- Hash: half of the total RAM in MB, which leaves room for the OS and the
+  rest:
 
 ```bash
 awk '/MemTotal/ {print int($2/2048)}' /proc/meminfo
 ```
 
-La taille du `hash` va impacter directement votre mémoire, la commande ci dessus permet d'avoir la taille de **la mémoire disponible avec l'OS** en action et pas **la mémoire globale**, ce qui permettra à Stockfish de prendre son aise sans dégrader les performances de votre serveur en le faisant surchauffer.
+Typical values:
 
+| Server | `sf_threads` | `sf_hash` |
+|--------|--------------|-----------|
+| Raspberry Pi 5, 4 cores, 8 GB | 4 | 4096 |
+| Mid-range VPS, 8 cores, 16 GB | 8 | 8192 |
+| Dedicated server, 16+ cores, 32+ GB | 16 | 16384 |
 
-### 3. Tests de validation
+Too large a hash is the most common mistake: the server fills its RAM, then
+its swap, then falls over. When in doubt, start low.
 
-#### Test 1 : Connexion SSH avec plink
+### 3. Validation tests
 
-Tester la connexion SSH directement avec `plink.exe` :
+#### Test 1: manual SSH connection
 
-```powershell
-PS C:\> & 'C:\Program Files\PuTTY\plink.exe' -batch -i C:\chemin\vers\votre\cle.ppk -P 22 utilisateur@votre-serveur.com uname -a
+```bash
+ssh -i ~/.ssh/id_ed25519 -p 22 user@your-server.example.com
 ```
 
-**Résultat attendu (avec les caractéristiques de votre matériel)** :
-```
-Linux serveur 6.12.38+deb13-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.12.38-1 (2025-07-16) x86_64 GNU/Linux
-```
+Expected: you are logged in without being asked for a password or a
+passphrase. Type `exit` to leave. (If you applied the optional hardening
+above, you will get Stockfish instead of a shell: type `quit`.)
 
-Si ça fonctionne, alors `plink.exe` peut se connecter et la clé du serveur sera ajoutée dans votre fichier `.ssh\known_hosts`.
+#### Test 2: the proxy itself
 
-#### Test 2 : Script Python avec auto-configuration
-
-Tester le script pour vérifier que tout fonctionne :
-
-```powershell
-PS C:\proxy_stockfish> python .\proxysf.py
+```bash
+python proxysf.py
 ```
 
-**Session de test avec auto-configuration** :
-```
-Stockfish 17.1 by the Stockfish developers (see AUTHORS file)
-isready
-readyok
+On startup the proxy performs its own `uci` / `isready` handshake with the
+engine and applies your configuration, so you will see the engine banner, the
+UCI option list, `uciok` and `readyok` scroll by before you type anything.
+Then type:
+
+```text
 uci
-id name Stockfish 17.1
-id author the Stockfish developers (see AUTHORS file)
-[... options UCI ...]
-uciok
+isready
 quit
 ```
 
-Les logs `debug.log` devraient montrer la configuration automatique :
-```
+You should get the option list ending with `uciok`, then `readyok`, then the
+proxy exits.
+
+With `logging_enabled` set to `true`, `debug.log` shows the auto-configuration:
+
+```text
 INFO - Initializing Stockfish with custom configuration...
-INFO - Setting Stockfish threads to 16
-INFO - Setting Stockfish hash to 8192MB
-INFO - Disabling Stockfish Ponder mode
+INFO - Setting Stockfish threads to 4
+INFO - Setting Stockfish hash to 2048MB
+INFO - Setting Stockfish MultiPV to 1
+INFO - Setting Stockfish Ponder to false
 INFO - Stockfish initialization completed.
 ```
 
-Si ces deux tests passent, vous pouvez créer l'exécutable.
+If both tests pass you are done. The next section is optional.
 
-### 4. Création de l'exécutable
+### 4. Building an executable (optional)
 
-1. **Installer PyInstaller** :
-   ```bash
-   pip install pyinstaller
-   ```
+Most GUIs can launch a Python script directly, but a single-file executable
+is easier to register as an engine. PyInstaller does it in one command:
 
-2. **Créer l'exécutable** :
-   ```bash
-   pyinstaller --onefile --console proxysf.py
-   ```
-
-   L'exécutable sera créé dans le dossier `dist/proxy_sf.exe`
-
-3. **Copier le fichier de configuration à côté de l'exe** :
-   ```powershell
-   PS C:\proxysf> cp .\config.json dist/
-   ```
-
-4. **Se déplacer dans le répertoire contenant l'exécutable et son fichier de configuration** :
-   ```powershell
-   PS C:\proxysf> cd dist/
-   ```
-
-### 5. Tests et manipulation du binaire
-
-Pour tester manuellement l'exécutable, lancer `proxysf.exe` dans un terminal :
-
-```
-> proxysf.exe
-> uci
-id name Stockfish 17.1
-id author the Stockfish developers
-[... options UCI ...]
-uciok
-
-> isready
-readyok
-
-> quit
+```bash
+pip install pyinstaller
+pyinstaller --onefile --console proxysf.py
 ```
 
-## Auto-configuration Stockfish
+The result is `dist/proxysf.exe` on Windows,
+`dist/proxysf` on Linux and macOS. The executable looks for
+`config.json` in its own directory, so copy it next to the binary:
 
-### Fonctionnement
-
-Au démarrage, le proxy configure automatiquement Stockfish avec les paramètres optimaux définis dans `config.json` :
-
-1. **Threads** : Utilise le nombre spécifié (`sf_threads`)
-2. **Hash** : Alloue la mémoire spécifiée (`sf_hash`)  
-3. **MultiPV** : Configure l'analyse multi-variantes (`sf_multipv`)
-4. **Ponder** : Désactivé par défaut pour éviter les blocages
-5. **Options custom** : Applique les options de `sf_options`
-
-### Priorité des configurations
-
-1. **Proxy** configure d'abord selon `config.json`
-2. **GUI** peut ensuite reconfigurer (mais attention aux écrasements)
-3. **Recommandation** : Laisser le proxy gérer les ressources et la GUI gérer le jeu
-
-### Commandes UCI supportées
-
-Le proxy transmet toutes les commandes UCI standard vers Stockfish distant :
-
-- `uci` - Initialisation UCI
-- `isready` - Vérification de disponibilité
-- `position startpos` / `position fen <fen>` - Définition de position
-- `go depth 15` / `go infinite` - Lancement d'analyse
-- `stop` - Arrêt d'analyse
-- `quit` - Fermeture
-
-## Utilisation dans Arena Chess (par exemple)
-
-### Configuration d'Arena
-
-1. **Lancer Arena Chess**
-2. **Aller dans** : `Engines` → `Install Engine`
-3. **Sélectionner** : `proxy_stockfish.exe`
-4. **Type** : `UCI Engine`
-5. **Valider** la configuration
-
-Arena utilisera alors votre Stockfish distant comme n'importe quel moteur local, automatiquement configuré avec les ressources optimales du serveur.
-
-### Compatibilité autres GUI
-
-Le proxy est compatible avec :
-- **Arena Chess** 
-- **Lucas Chess** 
-- **Scid vs PC**
-- **Chess Base**
-- *Normalement tout logiciel supportant les moteurs UCI*
-
-## Gestion des analyses infinies
-
-Le proxy gère intelligemment les analyses infinies :
-- Envoie automatiquement `stop` avant une nouvelle commande si l'engine analyse
-- Met en queue la commande suivante
-- Attend la réponse `bestmove` avant de continuer
-
-## Logs et debugging
-
-Avec `logging_enabled: true`, les logs sont sauvés dans `debug.log` :
-- Commandes envoyées à Stockfish
-- Réponses reçues
-- Configuration automatique appliquée
-- États internes du proxy
-- Erreurs de connexion
-
-**Exemple de log d'initialisation** :
-```
-2025-08-13 10:30:15,123 - INFO - Starting remote Stockfish wrapper.
-2025-08-13 10:30:15,456 - INFO - Plink process started successfully.
-2025-08-13 10:30:16,123 - INFO - Initializing Stockfish with custom configuration...
-2025-08-13 10:30:16,125 - INFO - Setting Stockfish threads to 16
-2025-08-13 10:30:16,127 - INFO - Setting Stockfish hash to 8192MB
-2025-08-13 10:30:16,131 - INFO - Disabling Stockfish Ponder mode
-2025-08-13 10:30:16,137 - INFO - Stockfish initialization completed.
+```bash
+cp config.json dist/
 ```
 
-## Résolution de problèmes
+### 5. Testing the executable
 
-### Erreur de connexion SSH
-- Vérifier les paramètres `host`, `username`, `port`
-- S'assurer que la clef SSH est correcte et autorisée sur le serveur
-- Tester la connexion manuellement avec PuTTY
+```text
+cd dist
+./proxysf        (Linux, macOS)
+.\proxysf.exe    (Windows)
+```
 
-### Stockfish non trouvé
-- Vérifier le chemin dans `stockfish_command`
-- S'assurer que Stockfish est installé sur le serveur
-- Tester avec `which stockfish` ou `whereis stockfish` sur votre serveur GNU/Linux
+Same session as test 2: `uci`, `isready`, `quit`.
 
-### Plink non trouvé
-- Vérifier le chemin dans `plink_path`
-- Installer PuTTY si nécessaire
-- Utiliser le chemin complet vers `plink.exe`
+## Auto-configuration
 
-### Configuration non appliquée
-- Vérifier la syntaxe du `config.json`
-- Consulter `debug.log` pour les erreurs d'initialisation
-- S'assurer que les valeurs sont dans les limites Stockfish
+At startup, before the GUI sends its first command, the proxy:
 
-### Analyse bloquée ou emballement
-- Le proxy envoie automatiquement `stop` si nécessaire
-- En cas de blocage, `Ctrl+C` pour terminer
-- Vérifier les logs pour identifier le problème
+1. sends `uci` and waits for `uciok`
+2. sets `Threads` from `sf_threads`
+3. sets `Hash` from `sf_hash`
+4. sets `MultiPV` from `sf_multipv`
+5. sets `Ponder` from `sf_ponder`
+6. sets every option listed in `sf_options`
+7. sends `isready` and waits for `readyok`
 
-### Arret d'urgence
+The GUI can still change any option afterwards, it will simply override the
+proxy's value. The recommended split: let the proxy own the server resources
+(threads, hash), let the GUI own the game settings.
 
-#### Côté serveur GNU/Linux
+## Using the proxy in a chess GUI
 
-- Tuer les processus stockfish :
-  
+### Arena
+
+1. Launch Arena
+2. `Engines` > `Install New Engine...`
+3. Select `proxysf.exe` (or `proxysf` on Linux/macOS)
+4. Engine type: `UCI`
+5. Confirm
+
+Arena now drives your remote Stockfish like any local engine, already
+configured with the server resources from `config.json`.
+
+### Other GUIs
+
+Anything that speaks UCI should work: Lucas Chess, Scid vs PC, ChessBase, ...
+
+## Infinite analysis handling
+
+When the engine is in `go infinite` mode and the GUI sends another command,
+the proxy:
+
+1. sends `stop` to the engine
+2. waits for `bestmove` (10 s timeout)
+3. forwards the queued command
+
+This prevents the GUI from flooding an engine that is still searching.
+
+## Logs and debugging
+
+With `"logging_enabled": true`, the proxy writes to `log_file` (default
+`debug.log`, next to the script or the executable):
+
+- the exact `ssh` command line used
+- every line received from the engine
+- every command typed by the GUI
+- the auto-configuration steps
+- SSH errors (stderr), timeouts, broken pipes
+
+Set `logging_enabled` to `false` once everything works, the log grows fast
+during long analysis sessions.
+
+## Troubleshooting
+
+### "ssh binary not found in PATH"
+
+- Linux/macOS: install the OpenSSH client package of your distribution
+- Windows: install the "OpenSSH Client" optional feature (link in the
+  Requirements section), then open a new terminal and check `ssh -V`
+
+### "Key file not found"
+
+- Check the `key_file` path in `config.json`
+- `ls -l ~/.ssh/id_ed25519` (Linux/macOS) or `dir %USERPROFILE%\.ssh`
+  (Windows) to see what you actually have
+- Use an absolute path if in doubt
+
+### SSH connection fails
+
+- Check `host`, `username`, `port`
+- Check that your public key is in `~/.ssh/authorized_keys` on the server
+- Run test 1 by hand, `ssh` prints a much better error than the proxy
+- With `BatchMode=yes`, a key with a passphrase (and no agent) fails silently
+  from the GUI's point of view: look at `debug.log`, the `STDERR` lines are
+  there
+
+### "Stockfish not found" or immediate disconnection
+
+- Check `stockfish_command`, run `which stockfish` on the server
+- Try the exact command over SSH:
+  `ssh -i ~/.ssh/id_ed25519 user@host /usr/games/stockfish`
+
+### Configuration not applied
+
+- Validate the JSON syntax of `config.json` (a trailing comma is enough to
+  break it)
+- Read `debug.log`: every `setoption` is logged, and so is any failure
+- Make sure values are within the engine limits: the `option name ... min
+  ... max ...` lines printed after `uci` give them for your Stockfish version
+
+### Engine stuck or running away
+
+- The proxy sends `stop` automatically where needed
+- If the GUI itself is stuck, `Ctrl+C` in the proxy console, or see the
+  emergency stop below
+- Then read the log
+
+### Emergency stop
+
+Server side:
+
 ```bash
 killall stockfish
+ps aux | grep [s]tockfish     # must print nothing
 ```
 
-- Puis vérifier :
-
-```bash
-ps aux | grep stockfish  # vérifier qu'il n'en reste plus
-```
-
-#### Côté Windows
-
-- Via le *Gestionnaire des tâches* :      
-
-Tuer tout les processus `proxysf.exe`
-
-- Via *PowerShell* :       
+Local side, Windows (PowerShell):
 
 ```powershell
 taskkill /f /im proxysf.exe
 ```
 
-### Instances multiples
+Local side, Linux/macOS:
 
-**Limitation importante** : Le proxy ne vérifie pas les instances multiples. 
-
-En cas de lancement simultané (tournois avec plusieurs workers, tests multiples ...) plusieurs processus Stockfish peuvent s'accumuler côté serveur et consommer toute la RAM, le swap puis crasher.
-
-**Prévention** :
-- Utiliser une seule instance de proxy à la fois
-- En cas de tournois, surveiller la consommation mémoire serveur avec `htop` (par ex)
-- Nettoyer manuellement les processus avant relancement
-
-## Architecture technique
-
-```
-[Interface UCI locale] 
-        ↓
-[proxysf.py]
-        ↓ configuration (sécurisée par SSH)
-[plink.exe] → [Serveur distant] → [Stockfish configuré]
-        ↑                              ↓
-[Réponses UCI] ← ← ← ← ← ← ← ← ← ← ← ← ←
+```bash
+pkill -f proxysf
 ```
 
-## Distribution et sécurité
+### Multiple instances
 
-### Distribution
+The proxy does **not** check for other running instances. If you launch
+several at once (engine tournaments with several workers, repeated tests...),
+each one starts its own Stockfish on the server, each with its own hash. RAM
+fills up, then swap, then the server crashes.
 
-Pour distribuer ce projet :
-1. **Code source sur GitHub** - transparence totale
-2. **Instructions de compilation** - chacun compile son propre .exe
+- Run a single proxy instance at a time
+- During tournaments, keep `htop` open on the server
+- Clean up leftover `stockfish` processes before relaunching
 
-*Pas de binaire pré-compilé disponible volontairement, mais c'est facile à faire !*
+## How it works
 
-### Implications au niveau sécurité d'un exécutable distribué
+```text
+   +-----------------------+
+   |  Chess GUI (UCI)      |   Arena, Lucas Chess, Scid vs PC, ...
+   +-----------+-----------+
+               |  stdin / stdout
+               v
+   +-----------------------+
+   | proxysf   |   reads config.json, configures the engine,
+   |                       |   tracks go/stop state, forwards everything
+   +-----------+-----------+
+               |  ssh -i key user@host stockfish
+               v
+   +-----------------------+
+   |  Remote server        |
+   |  sshd -> stockfish    |   Threads, Hash, MultiPV, ... from config.json
+   +-----------------------+
+```
 
-**Important** : Un .exe distribué doit légitimement susciter la méfiance, car en plus du logiciel original du code malveillant à pu être ajouté avant la compilation. 
+Every line the engine prints goes back up the same pipe to the GUI.
 
-C'est pour cette raison que j'ai fait le choix de ne pas fournir de binaire directement exécutable en plus du code source.
+## Distribution and security
 
-- Compiler vous-même depuis le code source
-- Vérifier les checksums si vous téléchargez un .exe pré-compilé
-- Scanner avec votre antivirus (à jour)
-- Examiner le code source avant compilation
+### No prebuilt binary, on purpose
 
-## Sécurité du proxy
+Only the source is published. Anyone can build their own executable in one
+command (section 4). A prebuilt executable deserves suspicion by default:
+anything could have been added to the code before compilation. If you still
+want to use someone else's binary, check its checksum, scan it, and read the
+source first.
 
-- Utilise uniquement l'authentification par clé SSH, pas de password
-- Pas de mot de passe en dur dans la configuration
-- Connexion chiffrée via SSH
-- Mode batch de plink (non-interactif)
-- Configuration Stockfish limitée aux options standard UCI
+### What the proxy does and does not do
 
-## Limitations connues
+- Key-based SSH authentication only, no password, nothing stored in clear
+- Encrypted transport, obviously
+- `ssh` runs in batch mode, it can never block on a prompt
+- The remote command is exactly what you put in `stockfish_command`, nothing
+  else is executed on the server (and with the optional `restrict,command=`
+  hardening, nothing else *can* be)
+- No instance management, no resource detection, no UCI parsing beyond the
+  few markers it waits for: see below
 
-### Version actuelle (plink)
-- **Dépendant de la latence réseau** pour les réponses
-- **Nécessite une connexion stable** au serveur
-- **Nécessite suffisament de ressources dispo** sur le serveur pour utiliser pleinement Stockfish
-- **Spécifique à Windows** (utilise plink.exe)
-- **Une seule connexion SSH** : impossible de détecter dynamiquement les ressources serveur
-- **Pas de gestion d'instances multiples** : possibilité d'emballement mémoire voir saturation, écritures dans le swap jusqu'à ce qu'il soit plein puis crash
-- **Evitez une valeur de hash trop élevée** : fortes possibilité de saturation immédiate de la RAM, écritures dans le swap jusqu'à ce qu'il soit plein puis crash
+## Known limitations
 
-### Philosophie KISS
+- Response time depends on the network latency to the server
+- A stable connection is required: if SSH drops, the engine is gone from the
+  GUI's point of view
+- The server needs enough free CPU and RAM for the values you configure
+- No detection of server resources: you set `sf_threads` and `sf_hash` by hand
+- No protection against multiple instances (see above)
+- No protection against an oversized hash (see above)
 
-Ce proxy privilégie la simplicité et la fiabilité. Les limitations ci-dessus sont documentées et des solutions manuelles sont proposées plutôt que de complexifier le code avec des mécanismes avancés de gestion d'instances, de parsing UCI, d'auto-configuration en fonction du serveur distant ou autre.
+### KISS
 
-## TODO
+This proxy favours simplicity and reliability. The limitations above are
+documented and manual workarounds are given, rather than growing the code with
+instance management, UCI parsing, remote resource probing or other machinery
+that would make it harder to read and to trust.
 
-Version full Python, permettant de s'affranchir de plink.exe et du format de clef propre à PuTTY en utilisant directement OpenSSH pour l'authentification.      
-Ce qui permettrait logiquement de rendre ainsi le proxy fonctionnel sous macOS et les systèmes GNU/Linux.
+## Previous version (plink)
+
+Version 0.0.1 of `proxysf.py` relied on PuTTY's `plink.exe` and `.ppk` keys,
+and was Windows only. It is kept for reference under the git tag `v0.0.1`:
+
+```bash
+git show v0.0.1:proxysf.py
+```
 
 ## License
 
-CC-0  
-Projet open source - à adapter selon vos besoins.
+[CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/). Do
+whatever you want with it.
 
 ---
 
-**Note** : Ce proxy a été testé avec Stockfish 17.1 et PuTTY sur Windows 11.
+Tested with Stockfish 17.1 and 19, clients on Windows 11, Debian 12 and
+macOS, servers on Debian and macOS (Homebrew).

@@ -1,0 +1,11 @@
+# Personal files
+debug.log
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.pyc

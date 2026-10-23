@@ -5,194 +5,309 @@ import os
 import json
 import logging
 import queue
-## Function to set up logging for the application
+import shutil
+import time
+
 def setup_logging(config):
-    """
-    Configure logging for the application, only if logging is enabled in the config.
-
-    Args:
-        config (dict): Configuration dictionary loaded from config.json.
-    """
-    if config.get("logging_enabled", False):  # Check if logging is enabled in the configuration
+    if config.get("logging_enabled", False):
         logging.basicConfig(
-            filename="debug.log",  # Log file name
-            level=logging.DEBUG,  # Log level (DEBUG includes detailed information)
-            format="%(asctime)s - %(levelname)s - %(message)s"  # Format for log messages
+            filename=config.get("log_file", "debug.log"),
+            level=logging.DEBUG,
+            format="%(asctime)s - %(levelname)s - %(message)s"
         )
-        logging.info("Logging initialized.")  # Log that logging has started
+        logging.info("Logging initialized.")
     else:
-## If logging is disabled, suppress all log levels except CRITICAL
         logging.basicConfig(level=logging.CRITICAL)
-## Function to load configuration from a JSON file
+
 def load_config():
-    """
-    Load configuration from config.json located in the same directory as the script.
-
-    Returns:
-        dict: Loaded configuration data.
-    """
-    config_path = os.path.join(os.path.dirname(sys.argv[0]), "config.json")  # Get the config file path
+    config_path = os.path.join(os.path.dirname(sys.argv[0]) or ".", "config.json")
     try:
-        with open(config_path, "r") as file:  # Open the config file
-            return json.load(file)  # Parse JSON and return as a dictionary
+        with open(config_path, "r") as f:
+            return json.load(f)
     except FileNotFoundError:
-        logging.error(f"Configuration file '{config_path}' not found.")  # Log if the file is missing
-        sys.exit(1)  # Exit the script with an error
-    except json.JSONDecodeError as e:
-        logging.error(f"Error parsing configuration file: {e}")  # Log if JSON is malformed
+        print(f"Configuration file '{config_path}' not found.", file=sys.stderr)
         sys.exit(1)
-## Function to handle output from Stockfish and log it
+    except json.JSONDecodeError as e:
+        print(f"Error parsing configuration file: {e}", file=sys.stderr)
+        sys.exit(1)
+
 def handle_output(process, output_queue, terminate_event):
-    """
-    Continuously read output from Stockfish (via Plink) and write it to stdout and logs.
-
-    Args:
-        process: The subprocess running Stockfish (via Plink).
-        output_queue: Queue to store output lines for sequential processing.
-        terminate_event: Event to signal when to stop reading output.
-    """
     try:
-        while not terminate_event.is_set():  # Loop until termination signal is received
-            output = process.stdout.readline()  # Read a line from Stockfish's stdout
-            if not output:  # Stop if no output is received
+        while not terminate_event.is_set():
+            line = process.stdout.readline()
+            if line == "":
+                # EOF reached
                 break
-            output = output.strip()  # Remove extra whitespace from the output
-            logging.debug(f"Stockfish output: {output}")  # Log the output
-            output_queue.put(output)  # Add the output to the queue for processing
-            sys.stdout.write(output + "\n")  # Print the output to the console
-            sys.stdout.flush()  # Ensure it appears immediately
+            line = line.rstrip("\r\n")
+            logging.debug(f"STDOUT: {line}")
+            output_queue.put(line)
+            sys.stdout.write(line + "\n")
+            sys.stdout.flush()
     except Exception as e:
-        logging.error(f"Error reading Stockfish output: {e}")  # Log any errors
-## Function to wait for a specific marker in the output queue
-def wait_for_marker(output_queue, marker):
-    """
-    Wait for a specific marker in the output queue.
+        logging.exception(f"Error reading stdout: {e}")
 
-    Args:
-        output_queue: Queue containing Stockfish output.
-        marker: The marker to wait for.
-    """
+def handle_stderr(process, terminate_event):
     try:
-        while True:  # Continuously check for the marker
-            output = output_queue.get()  # Get the next output line from the queue
-            if marker in output:  # If the marker is found in the output
-                logging.debug(f"Marker '{marker}' found in output.")  # Log that the marker was found
-                break  # Exit the loop
+        while not terminate_event.is_set():
+            line = process.stderr.readline()
+            if line == "":
+                break
+            line = line.rstrip("\r\n")
+            logging.warning(f"STDERR: {line}")
     except Exception as e:
-        logging.error(f"Error waiting for marker '{marker}': {e}")  # Log any errors
-## Main function to run the remote Stockfish engine
-def run_remote_stockfish(config):
-    """
-    Starts the remote Stockfish engine using plink and processes input sequentially.
+        logging.exception(f"Error reading stderr: {e}")
 
-    Args:
-        config: Dictionary containing configuration parameters.
-    """
-## Build paths to plink and the key file
-    plink_path = os.path.abspath(config["plink_path"])
-    key_file_path = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), config["key_file"]))
-    host = config["host"]
-    username = config["username"]
-    remote_command = config["stockfish_command"]
-## Build the plink command to run Stockfish remotely
-    plink_command = [
-        plink_path,
-        "-batch",  # Run in batch mode (non-interactive)
-        "-ssh",  # Use SSH for connection
-        "-i", key_file_path,  # Path to the private key file
-        "-P 4242", # Destination port
-        f"{username}@{host}",  # Remote username and host
-        remote_command  # Command to run Stockfish on the remote server
-    ]
-    logging.info(f"Plink command: {' '.join(plink_command)}")  # Log the full command
-
+def wait_for_marker(output_queue, marker, timeout=None):
+    start = time.time()
     try:
-## Start the plink process
-        process = subprocess.Popen(
-            plink_command,
-            stdin=subprocess.PIPE,  # Input to the process
-            stdout=subprocess.PIPE,  # Output from the process
-            stderr=subprocess.PIPE,  # Error output from the process
-            text=True,  # Use text mode for input/output
-            bufsize=1  # Line buffering
-        )
-        logging.info("Plink process started successfully.")  # Log success
-## Initialize synchronization tools
-        terminate_event = threading.Event()  # Event to signal thread termination
-        output_queue = queue.Queue()  # Queue to hold Stockfish output
-## Track if Stockfish is analyzing a position
-        is_analyzing = False
-        pending_command = None  # To store a queued command
-## Start a thread to handle Stockfish output
-        output_thread = threading.Thread(target=handle_output, args=(process, output_queue, terminate_event))
-        output_thread.daemon = True  # Run the thread in the background
-        output_thread.start()
-## Main loop to process user input
         while True:
             try:
-                user_input = input()  # Read user input from the console
-                logging.debug(f"User input: {user_input.strip()}")  # Log the input
+                output = output_queue.get(timeout=0.5)
+            except queue.Empty:
+                if timeout is not None and (time.time() - start) > timeout:
+                    logging.error(f"Timeout waiting for marker '{marker}'")
+                    return False
+                continue
+            if marker in output:
+                logging.debug(f"Marker '{marker}' found.")
+                return True
+    except Exception as e:
+        logging.exception(f"Error in wait_for_marker: {e}")
+        return False
 
-                if user_input.strip().lower() == "quit":  # Check for quit command
-                    process.stdin.write(user_input + "\n")
-                    process.stdin.flush()
-                    terminate_event.set()  # Stop the output thread
+def configure_stockfish(process, config, output_queue):
+    """Configure Stockfish with optimal settings from config.json"""
+    logging.info("Initializing Stockfish with custom configuration...")
+    
+    # Send uci first
+    try:
+        process.stdin.write("uci\n")
+        process.stdin.flush()
+        wait_for_marker(output_queue, "uciok", timeout=5)
+    except Exception as e:
+        logging.exception(f"Failed to initialize UCI: {e}")
+        return
+    
+    # Configure threads
+    if "sf_threads" in config:
+        threads = config["sf_threads"]
+        try:
+            process.stdin.write(f"setoption name Threads value {threads}\n")
+            process.stdin.flush()
+            logging.info(f"Setting Stockfish threads to {threads}")
+        except Exception as e:
+            logging.exception(f"Failed to set threads: {e}")
+    
+    # Configure hash
+    if "sf_hash" in config:
+        hash_mb = config["sf_hash"]
+        try:
+            process.stdin.write(f"setoption name Hash value {hash_mb}\n")
+            process.stdin.flush()
+            logging.info(f"Setting Stockfish hash to {hash_mb}MB")
+        except Exception as e:
+            logging.exception(f"Failed to set hash: {e}")
+    
+    # Configure MultiPV
+    if "sf_multipv" in config:
+        multipv = config["sf_multipv"]
+        try:
+            process.stdin.write(f"setoption name MultiPV value {multipv}\n")
+            process.stdin.flush()
+            logging.info(f"Setting Stockfish MultiPV to {multipv}")
+        except Exception as e:
+            logging.exception(f"Failed to set MultiPV: {e}")
+    
+    # Configure Ponder
+    if "sf_ponder" in config:
+        ponder = "true" if config["sf_ponder"] else "false"
+        try:
+            process.stdin.write(f"setoption name Ponder value {ponder}\n")
+            process.stdin.flush()
+            logging.info(f"Setting Stockfish Ponder to {ponder}")
+        except Exception as e:
+            logging.exception(f"Failed to set Ponder: {e}")
+    
+    # Custom options
+    if "sf_options" in config:
+        for option, value in config["sf_options"].items():
+            try:
+                process.stdin.write(f"setoption name {option} value {value}\n")
+                process.stdin.flush()
+                logging.info(f"Setting custom option: {option} = {value}")
+            except Exception as e:
+                logging.exception(f"Failed to set custom option {option}: {e}")
+    
+    # Verify ready
+    try:
+        process.stdin.write("isready\n")
+        process.stdin.flush()
+        wait_for_marker(output_queue, "readyok", timeout=5)
+        logging.info("Stockfish initialization completed.")
+    except Exception as e:
+        logging.exception(f"Failed to verify readiness: {e}")
+
+def run_remote_stockfish(config):
+    # Basic checks
+    ssh_bin = shutil.which("ssh")
+    if not ssh_bin:
+        logging.critical("ssh binary not found in PATH. Install OpenSSH or ensure ssh is available.")
+        print("ssh binary not found in PATH. Install OpenSSH or ensure ssh is available.", file=sys.stderr)
+        sys.exit(1)
+
+    # Expand "~" first (on Windows Python uses USERPROFILE), then resolve a
+    # relative path against the script directory, as before
+    key_file = os.path.expanduser(config.get("key_file", ""))
+    if not os.path.isabs(key_file):
+        key_file = os.path.join(os.path.dirname(sys.argv[0]) or ".", key_file)
+    key_file = os.path.abspath(key_file)
+    if not os.path.isfile(key_file):
+        logging.critical(f"Key file not found: {key_file}")
+        print(f"Key file not found: {key_file}", file=sys.stderr)
+        sys.exit(1)
+
+    host = config["host"]
+    username = config["username"]
+    port = str(config.get("port", 22))
+    remote_command = config.get("stockfish_command", "stockfish")
+
+    # Build ssh command
+    ssh_command = [
+        ssh_bin,
+        "-i", key_file,
+        "-p", port,
+        f"{username}@{host}",
+        remote_command
+    ]
+
+    # Optionally append extra SSH options from config (list of strings)
+    extra_opts = config.get("ssh_options", [])
+    if extra_opts:
+        # Insert after ssh binary, before -i
+        ssh_command = [ssh_bin] + extra_opts + ssh_command[1:]
+
+    logging.info(f"SSH command: {' '.join(ssh_command)}")
+
+    try:
+        process = subprocess.Popen(
+            ssh_command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1
+        )
+        logging.info("SSH process started.")
+
+        terminate_event = threading.Event()
+        output_queue = queue.Queue()
+
+        out_thread = threading.Thread(target=handle_output, args=(process, output_queue, terminate_event), daemon=True)
+        err_thread = threading.Thread(target=handle_stderr, args=(process, terminate_event), daemon=True)
+        out_thread.start()
+        err_thread.start()
+
+        # Auto-configure Stockfish before accepting user input
+        configure_stockfish(process, config, output_queue)
+
+        is_analyzing = False
+        pending_command = None
+
+        while True:
+            try:
+                user_input = input()
+                logging.debug(f"User input: {user_input!r}")
+
+                if user_input.strip().lower() == "quit":
+                    if process.poll() is None:
+                        try:
+                            process.stdin.write("quit\n")
+                            process.stdin.flush()
+                        except Exception:
+                            pass
+                    terminate_event.set()
                     break
 
                 if is_analyzing and user_input.strip().lower() != "stop":
-## If the engine is analyzing, send "stop" before a new command
-                    logging.info("Engine is analyzing. Sending 'stop' command.")
+                    logging.info("Engine is analyzing. Sending 'stop' before next command.")
                     pending_command = user_input
-                    process.stdin.write("stop\n")
-                    process.stdin.flush()
-                    wait_for_marker(output_queue, "bestmove")  # Wait for bestmove response
+                    try:
+                        process.stdin.write("stop\n")
+                        process.stdin.flush()
+                    except Exception as e:
+                        logging.exception(f"Failed to send stop: {e}")
+                        pending_command = None
+                    # wait for bestmove (with a reasonable timeout)
+                    wait_for_marker(output_queue, "bestmove", timeout=10)
                     is_analyzing = False
                     continue
-## Send the command to Stockfish
-                process.stdin.write(user_input + "\n")
-                process.stdin.flush()
-## Update the analyzing state based on the command
-                if user_input.strip().startswith("go infinite"):
-                    is_analyzing = True
-                elif user_input.strip().lower() == "stop":
-                    is_analyzing = False
-## Handle specific markers for commands
-                if user_input.strip() == "uci":
-                    wait_for_marker(output_queue, "uciok")
-                elif user_input.strip() == "isready":
-                    wait_for_marker(output_queue, "readyok")
-                elif "go" in user_input and "infinite" not in user_input:
-                    wait_for_marker(output_queue, "bestmove")
-## Process any pending command after "stop"
-                if pending_command and not is_analyzing:
-                    logging.info(f"Processing queued command: {pending_command.strip()}")
-                    process.stdin.write(pending_command + "\n")
+
+                # send user's command
+                try:
+                    process.stdin.write(user_input + "\n")
                     process.stdin.flush()
+                except BrokenPipeError:
+                    logging.error("Broken pipe writing to SSH process stdin.")
+                    terminate_event.set()
+                    break
+
+                # update analyzing state (FIX: clarified logic with parentheses)
+                cmd = user_input.strip().lower()
+                if cmd.startswith("go infinite") or (cmd.startswith("go perft") and "infinite" in user_input):
+                    is_analyzing = True
+                elif cmd == "stop":
+                    is_analyzing = False
+
+                # specific waits
+                if cmd == "uci":
+                    wait_for_marker(output_queue, "uciok", timeout=5)
+                elif cmd == "isready":
+                    wait_for_marker(output_queue, "readyok", timeout=5)
+                elif "go" in cmd and "infinite" not in cmd:
+                    wait_for_marker(output_queue, "bestmove", timeout=30)
+
+                # process pending command if any
+                if pending_command and not is_analyzing:
+                    logging.info(f"Processing queued command: {pending_command!r}")
+                    try:
+                        process.stdin.write(pending_command + "\n")
+                        process.stdin.flush()
+                    except Exception as e:
+                        logging.exception(f"Failed to send pending command: {e}")
                     pending_command = None
 
-            except EOFError:  # Handle end-of-file (e.g., when stdin closes)
-                logging.warning("EOFError: stdin closed unexpectedly.")
+            except EOFError:
+                logging.warning("EOFError: stdin closed.")
                 terminate_event.set()
                 break
-            except KeyboardInterrupt:  # Handle Ctrl+C
-                logging.info("KeyboardInterrupt: Exiting...")
+            except KeyboardInterrupt:
+                logging.info("KeyboardInterrupt: exiting.")
                 terminate_event.set()
                 break
-            except Exception as e:  # Catch unexpected errors
-                logging.error(f"Error processing user input: {e}")
-## Wait for the output thread to finish
-        output_thread.join()
-## Terminate the plink process
-        process.terminate()
-        logging.info("Plink process terminated.")
+            except Exception as e:
+                logging.exception(f"Unexpected error in main loop: {e}")
+
+        # cleanup
+        terminate_event.set()
+        try:
+            out_thread.join(timeout=2)
+            err_thread.join(timeout=2)
+        except Exception:
+            pass
+        if process.poll() is None:
+            try:
+                process.terminate()
+            except Exception:
+                pass
+        logging.info("SSH wrapper terminated.")
 
     except Exception as e:
-        logging.error(f"Error running Stockfish with Plink: {e}")  # Log any errors
+        logging.exception(f"Error running remote stockfish via ssh: {e}")
     finally:
-        logging.info("Remote Stockfish wrapper terminated.")  # Final cleanup log
-## Main script entry point
+        logging.info("Remote Stockfish wrapper finalizing.")
+
 if __name__ == "__main__":
-    config = load_config()  # Load configuration
-    setup_logging(config)  # Initialize logging
-    logging.info("Starting remote Stockfish wrapper.")  # Log startup message
-    run_remote_stockfish(config)  # Run the main function
+    cfg = load_config()
+    setup_logging(cfg)
+    logging.info("Starting remote Stockfish wrapper (native ssh).")
+    run_remote_stockfish(cfg)
