@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - YYYY-MM-DD
+
+Maintenance release.
+
+### Fixed
+
+- A GUI command that merely contained the letters `go`, such as
+  `setoption name SyzygyPath value /home/goku/tb`, was taken for a `go`
+  command: the proxy stopped reading the GUI commands for 30 s, waiting
+  for a `bestmove` that never came. Only `go` on its own, or `go`
+  followed by a space and its parameters, now waits for `bestmove`
+- Boolean values in `sf_options`, such as the shipped
+  `"UCI_ShowWDL": true`, were sent as `True` / `False` instead of the UCI
+  `true` / `false`, and Stockfish silently ignored them. They are now
+  sent in lowercase
+
+### Changed
+
+- Log messages use lazy `%s` formatting, and `logging.exception` no
+  longer repeats the exception text, which remains in the traceback
+- Code cleanup with no change in behaviour: sorted imports, PEP 8 blank
+  lines, no trailing whitespace, docstrings, development notes removed
+  from comments, `# nosec` with a short reason on the two `subprocess`
+  lines reported by bandit
+
 ## [1.0.0] - 2026-10-24
 
 Complete rewrite of the transport layer. PuTTY is gone.
@@ -61,5 +86,6 @@ First release.
 Note: the engine auto-configuration described in the README of this release
 was not part of the published script. It ships for real in 1.0.0.
 
+[1.0.1]: https://github.com/deuza/proxy_stockfish/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/deuza/proxy_stockfish/compare/v0.0.1...v1.0.0
 [0.0.1]: https://github.com/deuza/proxy_stockfish/releases/tag/v0.0.1
